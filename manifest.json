@@ -1,0 +1,25 @@
+{
+  "name": "Dream to Reality Field System",
+  "short_name": "D2R Field",
+  "description": "Field management app for Dream to Reality Construction LLC",
+  "start_url": "/dream-to-reality/",
+  "scope": "/dream-to-reality/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0d0b06",
+  "theme_color": "#0d0b06",
+  "icons": [
+    {
+      "src": "icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
