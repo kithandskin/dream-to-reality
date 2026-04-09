@@ -1,0 +1,1685 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="D2R Field">
+<title>Dream to Reality · Field System</title>
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#0d0b06">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
+<style>
+* { box-sizing:border-box; margin:0; padding:0; -webkit-tap-highlight-color:transparent; }
+body { background:#0d0b06; color:#f0e0b0; font-family:Georgia,serif; }
+input,select,textarea,button { font-family:Georgia,serif; }
+input[type=number] { font-family:\'Courier New\',monospace; }
+input:focus,select:focus,textarea:focus { outline:none; border-color:#c8a84a !important; }
+select option { background:#1a1508; color:#f0e0b0; }
+::-webkit-scrollbar { width:4px; }
+::-webkit-scrollbar-track { background:#0d0b06; }
+::-webkit-scrollbar-thumb { background:#3a2e1a; border-radius:2px; }
+.overlay { position:fixed;inset:0;background:rgba(0,0,0,0.75);z-index:100;display:flex;align-items:flex-end; }
+.sheet { background:#111008;border-top:1px solid #3a2e1a;border-radius:16px 16px 0 0;padding:24px 20px 44px;width:100%;max-width:480px;margin:0 auto; }
+@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script>
+// Generate app icon dynamically and inject as apple-touch-icon
+(function(){
+  try {
+    const c = document.createElement("canvas");
+    c.width = 512; c.height = 512;
+    const ctx = c.getContext("2d");
+    // Background — use arc-based rounded rect for maximum compatibility
+    function roundRect(ctx, x, y, w, h, r) {
+      ctx.beginPath();
+      ctx.moveTo(x+r, y);
+      ctx.lineTo(x+w-r, y);
+      ctx.quadraticCurveTo(x+w, y, x+w, y+r);
+      ctx.lineTo(x+w, y+h-r);
+      ctx.quadraticCurveTo(x+w, y+h, x+w-r, y+h);
+      ctx.lineTo(x+r, y+h);
+      ctx.quadraticCurveTo(x, y+h, x, y+h-r);
+      ctx.lineTo(x, y+r);
+      ctx.quadraticCurveTo(x, y, x+r, y);
+      ctx.closePath();
+    }
+    ctx.fillStyle = "#0d0b06";
+    roundRect(ctx, 0, 0, 512, 512, 80);
+    ctx.fill();
+    ctx.strokeStyle = "#c8a84a";
+    ctx.lineWidth = 18;
+    roundRect(ctx, 12, 12, 488, 488, 72);
+    ctx.stroke();
+    ctx.fillStyle = "#c8a84a";
+    ctx.font = "bold 148px Georgia,serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText("D2R", 256, 200);
+    ctx.fillStyle = "#8a7a5a";
+    ctx.font = "52px Georgia,serif";
+    ctx.fillText("FIELD", 256, 320);
+    ctx.fillStyle = "#e0c88a";
+    ctx.font = "bold 34px Georgia,serif";
+    ctx.fillText("Dream to Reality", 256, 420);
+    const dataUrl = c.toDataURL("image/png");
+    const link = document.createElement("link");
+    link.rel = "apple-touch-icon";
+    link.href = dataUrl;
+    document.head.appendChild(link);
+    const fav = document.createElement("link");
+    fav.rel = "icon";
+    fav.href = dataUrl;
+    document.head.appendChild(fav);
+  } catch(e) { console.warn("Icon generation skipped:", e); }
+})();
+
+const SUPABASE_URL = "https://qthenicqfczksdkdgxbb.supabase.co";
+const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InF0aGVuaWNxZmN6a3Nka2RneGJiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzUzNTA2NTIsImV4cCI6MjA5MDkyNjY1Mn0.WNR9aJiH0uoMusA_4GgHLzHMtno9EuP42pIFyonjtWc";
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+</script>
+<script type="text/babel">
+const { useState, useEffect } = React;
+
+const CATS = ["Materials","Tools","Fuel/Mileage","Permits","Subs","Tax","Other","Home Office"];
+const fmt = n => "$"+Number(n||0).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2});
+
+function downloadCSV(filename, rows) {
+  const csv = rows.map(r=>r.map(c=>`"${String(c||"").replace(/"/g,'""')}"`).join(",")).join("\\n");
+  const blob = new Blob([csv],{type:"text/csv"});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a"); a.href=url; a.download=filename; a.click();
+  URL.revokeObjectURL(url);
+}
+
+const S = {
+  inp: {width:"100%",background:"#1a1508",border:"1px solid #3a2e1a",borderRadius:4,color:"#f0e0b0",fontSize:14,padding:"10px",WebkitAppearance:"none"},
+  numInp: {width:"100%",background:"#1a1508",border:"1px solid #3a2e1a",borderRadius:4,color:"#f0e0b0",fontSize:14,padding:"10px",fontFamily:"'Courier New',monospace",WebkitAppearance:"none"},
+  label: {fontSize:10,letterSpacing:"0.1em",color:"#c8a060",textTransform:"uppercase",marginBottom:3,display:"block"},
+  hint: {fontSize:11,color:"#9a8a6a",marginTop:4},
+  goldBtn: {width:"100%",background:"#c8a84a",color:"#0d0b06",border:"none",borderRadius:4,padding:"13px 0",fontWeight:700,letterSpacing:"0.1em",textTransform:"uppercase",fontSize:13,cursor:"pointer"},
+  outlineBtn: {width:"100%",background:"#2a200a",border:"1px solid #c8a84a",color:"#c8a84a",borderRadius:4,padding:"11px 0",fontWeight:700,letterSpacing:"0.1em",textTransform:"uppercase",fontSize:12,cursor:"pointer"},
+  ghostBtn: {width:"100%",background:"none",border:"1px solid #4a3a2a",color:"#a08a5a",borderRadius:4,padding:"10px 0",fontWeight:600,letterSpacing:"0.08em",textTransform:"uppercase",fontSize:11,cursor:"pointer"},
+  card: {background:"#1a1508",border:"1px solid #3a2e1a",borderRadius:6,padding:"12px 14px"},
+  row: {borderTop:"1px solid #3a2e1a",padding:"10px 0",display:"flex",justifyContent:"space-between",alignItems:"center"},
+  backBtn: {background:"none",border:"none",color:"#8a7a5a",cursor:"pointer",fontSize:14,marginBottom:16,padding:0,display:"block"},
+  sectionTitle: {fontSize:17,color:"#c8a84a",fontWeight:700,marginBottom:20},
+  delBtn: {background:"none",border:"none",color:"#5a5040",cursor:"pointer",fontSize:20,lineHeight:1,padding:"0 2px"},
+};
+
+// ── SHARED COMPONENTS ─────────────────────────────────────────────
+function NumField({label,val,set,pre,suf,hint}) {
+  return (
+    <div style={{marginBottom:16}}>
+      <span style={S.label}>{label}</span>
+      <div style={{display:"flex",alignItems:"center",background:"#1a1508",border:"1px solid #3a2e1a",borderRadius:4}}>
+        {pre && <span style={{padding:"0 10px",color:"#c8a84a",fontFamily:"monospace"}}>{pre}</span>}
+        <input type="number" value={val} onChange={e=>set(Number(e.target.value))}
+          style={{flex:1,background:"transparent",border:"none",outline:"none",color:"#f0e0b0",fontFamily:"'Courier New',monospace",fontSize:16,padding:"10px 8px"}} />
+        {suf && <span style={{padding:"0 10px",color:"#8a7a5a",fontSize:13}}>{suf}</span>}
+      </div>
+      {hint && <div style={S.hint}>{hint}</div>}
+    </div>
+  );
+}
+
+function TextField({label,value,onChange,type="text",placeholder,multiline}) {
+  return (
+    <div style={{marginBottom:12}}>
+      <span style={S.label}>{label}</span>
+      {multiline
+        ? <textarea value={value} onChange={onChange} rows={3} placeholder={placeholder} style={{...S.inp,resize:"none",fontFamily:"Georgia,serif"}} />
+        : <input type={type} value={value} onChange={onChange} placeholder={placeholder} style={S.inp} />}
+    </div>
+  );
+}
+
+function Loading() {
+  return <div style={{textAlign:"center",color:"#5a5040",padding:48,fontSize:14}}>Loading...</div>;
+}
+
+// ── SETTINGS SHEET ────────────────────────────────────────────────
+function SettingsSheet({settings,setSettings,onClose}) {
+  const [local,setLocal] = useState({...settings});
+  const setL = k => e => setLocal(p=>({...p,[k]:e.target.value}));
+
+  async function save() {
+    const {newPin, ...rest} = local;
+    const upserts = Object.entries(rest).map(([key_name,val])=>({key_name,val:String(val)}));
+    if(newPin && newPin.length>=4) {
+      upserts.push({key_name:"app_pin",val:newPin});
+    }
+    await sb.from("d2r_settings").upsert(upserts,{onConflict:"key_name"});
+    setSettings(rest); onClose();
+  }
+
+  return (
+    <div className="overlay" onClick={e=>{if(e.target===e.currentTarget)onClose();}}>
+      <div className="sheet">
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:24}}>
+          <div style={S.sectionTitle}>Settings</div>
+          <button onClick={onClose} style={{background:"none",border:"none",color:"#8a7a5a",fontSize:28,cursor:"pointer",lineHeight:1}}>&times;</button>
+        </div>
+        <div style={{marginBottom:16}}>
+          <span style={S.label}>Default Hourly Rate</span>
+          <div style={{display:"flex",alignItems:"center",background:"#1a1508",border:"1px solid #3a2e1a",borderRadius:4}}>
+            <span style={{padding:"0 10px",color:"#c8a84a",fontFamily:"monospace"}}>$</span>
+            <input type="number" value={local.rate} onChange={setL("rate")}
+              style={{flex:1,background:"transparent",border:"none",outline:"none",color:"#f0e0b0",fontFamily:"'Courier New',monospace",fontSize:16,padding:"10px 8px"}} />
+            <span style={{padding:"0 10px",color:"#8a7a5a",fontSize:13}}>/hr</span>
+          </div>
+          <div style={S.hint}>Market range for your experience: $75&ndash;$150/hr</div>
+        </div>
+        <div style={{marginBottom:16}}>
+          <span style={S.label}>Default Materials Markup</span>
+          <div style={{display:"flex",alignItems:"center",background:"#1a1508",border:"1px solid #3a2e1a",borderRadius:4}}>
+            <input type="number" value={local.markup} onChange={setL("markup")}
+              style={{flex:1,background:"transparent",border:"none",outline:"none",color:"#f0e0b0",fontFamily:"'Courier New',monospace",fontSize:16,padding:"10px"}} />
+            <span style={{padding:"0 10px",color:"#8a7a5a",fontSize:13}}>%</span>
+          </div>
+          <div style={S.hint}>Industry standard: 10&ndash;20%</div>
+        </div>
+        <div style={{marginBottom:16}}>
+          <span style={S.label}>Bid Email</span>
+          <input type="email" value={local.bidEmail} onChange={setL("bidEmail")} placeholder="you@email.com" style={S.inp} />
+          <div style={S.hint}>Bids land here for you to format before sending to clients</div>
+        </div>
+        <div style={{marginBottom:24}}>
+          <span style={S.label}>Receipt Email</span>
+          <input type="email" value={local.receiptEmail} onChange={setL("receiptEmail")} placeholder="receipts@gmail.com" style={S.inp} />
+        </div>
+        <div style={{marginBottom:24}}>
+          <span style={S.label}>Anthropic API Key</span>
+          <input type="password" value={local.anthropicKey} onChange={setL("anthropicKey")} placeholder="sk-ant-..." style={S.inp} />
+          <div style={S.hint}>Powers receipt reading. Same key as Small Batch Studio.</div>
+        </div>
+        <div style={{marginBottom:24}}>
+          <span style={S.label}>Change PIN</span>
+          <input type="password" inputMode="numeric" value={local.newPin||""} onChange={e=>setLocal(p=>({...p,newPin:e.target.value}))}
+            placeholder="Enter new PIN to change" style={S.inp} />
+          <div style={S.hint}>Leave blank to keep current PIN</div>
+        </div>
+        <button onClick={save} style={S.goldBtn}>Save Settings</button>
+      </div>
+    </div>
+  );
+}
+
+// ── CLIENTS TAB ───────────────────────────────────────────────────
+function ClientsTab({clients,setClients}) {
+  const empty = {name:"",phone:"",email:"",address:"",notes:""};
+  const [view,setView] = useState("list");
+  const [sel,setSel] = useState(null);
+  const [form,setForm] = useState(empty);
+  const [saving,setSaving] = useState(false);
+  const setF = k => e => setForm(p=>({...p,[k]:e.target.value}));
+
+  async function save() {
+    if(!form.name) return;
+    setSaving(true);
+    try {
+      if(sel) {
+        await sb.from("d2r_clients").update({name:form.name,phone:form.phone,email:form.email,address:form.address,notes:form.notes}).eq("id",sel.id);
+        setClients(p=>p.map(c=>c.id===sel.id?{...form,id:sel.id}:c));
+      } else {
+        const {data} = await sb.from("d2r_clients").insert({name:form.name,phone:form.phone,email:form.email,address:form.address,notes:form.notes}).select().single();
+        setClients(p=>[...p,data].sort((a,b)=>a.name.localeCompare(b.name)));
+      }
+      setForm(empty); setSel(null); setView("list");
+    } finally { setSaving(false); }
+  }
+
+  async function remove() {
+    if(!confirm("Remove "+sel.name+"?")) return;
+    await sb.from("d2r_clients").delete().eq("id",sel.id);
+    setClients(p=>p.filter(c=>c.id!==sel.id));
+    setSel(null); setView("list");
+  }
+
+  function edit(c) { setForm({...c}); setSel(c); setView("add"); }
+
+  function exportClients() {
+    const rows=[["Name","Phone","Email","Address","Notes"]];
+    clients.forEach(c=>rows.push([c.name,c.phone,c.email,c.address,c.notes]));
+    downloadCSV("clients.csv",rows);
+  }
+
+  if(view==="add") return (
+    <div>
+      <button onClick={()=>{setView("list");setSel(null);setForm(empty);}} style={S.backBtn}>&larr; Back</button>
+      <div style={S.sectionTitle}>{sel?"Edit Client":"New Client"}</div>
+      <TextField label="Client Name" value={form.name} onChange={setF("name")} placeholder="Smith" />
+      <TextField label="Phone" value={form.phone} onChange={setF("phone")} type="tel" placeholder="(555) 000-0000" />
+      <TextField label="Email" value={form.email} onChange={setF("email")} type="email" placeholder="client@email.com" />
+      <TextField label="Address" value={form.address} onChange={setF("address")} placeholder="123 Main St, City, OH" />
+      <TextField label="Notes" value={form.notes} onChange={setF("notes")} placeholder="Key codes, preferences, access info..." multiline />
+      <div style={{display:"grid",gridTemplateColumns:sel?"1fr 1fr":"1fr",gap:10,marginTop:8}}>
+        {sel && <button onClick={remove} style={{background:"none",border:"1px solid #5a2a2a",color:"#8a4a4a",borderRadius:4,padding:"12px 0",fontWeight:700,fontSize:12,cursor:"pointer"}}>Delete</button>}
+        <button onClick={save} disabled={saving} style={{...S.goldBtn,opacity:saving?0.6:1}}>{saving?"Saving...":"Save Client"}</button>
+      </div>
+    </div>
+  );
+
+  return (
+    <div>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:20}}>
+        <button onClick={()=>{setView("add");setSel(null);setForm(empty);}} style={S.outlineBtn}>+ New Client</button>
+        <button onClick={exportClients} style={S.ghostBtn} disabled={!clients.length}>&darr; Export CSV</button>
+      </div>
+      {!clients.length && <div style={{textAlign:"center",color:"#5a5040",padding:48,fontSize:14}}>No clients yet.</div>}
+      {clients.map(c=>(
+        <div key={c.id} style={{...S.card,marginBottom:8,display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
+          <button onClick={()=>edit(c)} style={{background:"none",border:"none",textAlign:"left",cursor:"pointer",flex:1,padding:0}}>
+            <div style={{color:"#f0e0b0",fontWeight:600,fontSize:15,marginBottom:3}}>{c.name}</div>
+            {c.phone && <div style={{color:"#8a7060",fontSize:12,fontFamily:"monospace",marginBottom:1}}>{c.phone}</div>}
+            {c.email && <div style={{color:"#5a5040",fontSize:12,marginBottom:1}}>{c.email}</div>}
+            {c.address && <div style={{color:"#8a7a5a",fontSize:12}}>{c.address}</div>}
+          </button>
+          {c.address && (
+            <a href={"https://maps.google.com/?q="+encodeURIComponent(c.address)} target="_blank" rel="noreferrer"
+              style={{marginLeft:12,background:"#1a2510",border:"1px solid #3a5a1a",borderRadius:4,color:"#7aba4a",fontSize:11,padding:"5px 8px",textDecoration:"none",whiteSpace:"nowrap",flexShrink:0}}>
+              &#x1F4CD; Maps
+            </a>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ── BID TAB ───────────────────────────────────────────────────────
+function BidTab({clients,settings}) {
+  const [rate,setRate] = useState(Number(settings.rate)||85);
+  const [hours,setHours] = useState(8);
+  const [days,setDays] = useState(5);
+  const [mats,setMats] = useState(0);
+  const [markup,setMarkup] = useState(Number(settings.markup)||15);
+  const [note,setNote] = useState("");
+  const [jobDesc,setJobDesc] = useState("");
+  const [clientId,setClientId] = useState("");
+
+  const labor=rate*hours*days, matM=mats*(1+markup/100), total=labor+matM;
+  const sc = clientId ? clients.find(c=>c.id===Number(clientId)) : null;
+
+  function emailBid() {
+    const cb = sc ? "Client: "+sc.name+"\\nPhone: "+(sc.phone||"-")+"\\nAddress: "+(sc.address||"-")+"\\n" : "";
+    const jb = jobDesc ? "Job: "+jobDesc+"\\n" : "";
+    const body = cb+jb+"\\nESTIMATE - Dream to Reality Construction LLC\\n"+"_".repeat(40)+"\\nLabor: "+fmt(rate)+"/hr x "+hours+" hrs/day x "+days+" days = "+fmt(labor)+"\\nMaterials: "+fmt(mats)+" + "+markup+"% markup = "+fmt(matM)+"\\n"+"_".repeat(40)+"\\nTOTAL: "+fmt(total)+(note?"\\n\\nNotes: "+note:"");
+    window.open("mailto:"+(settings.bidEmail||"")+"?subject="+encodeURIComponent("Estimate - Dream to Reality Construction LLC")+"&body="+encodeURIComponent(body));
+  }
+
+  return (
+    <div>
+      {clients.length>0 && (
+        <div style={{marginBottom:20}}>
+          <span style={S.label}>Client</span>
+          <select value={clientId} onChange={e=>setClientId(e.target.value)} style={S.inp}>
+            <option value="">- Select a client -</option>
+            {clients.map(c=><option key={c.id} value={c.id}>{c.name}{c.address?" \u2014 "+c.address:""}</option>)}
+          </select>
+          {sc && (
+            <div style={{marginTop:8,padding:"8px 12px",background:"#1a1508",border:"1px solid #2a200a",borderRadius:4,fontSize:12,color:"#8a7a5a",lineHeight:1.7}}>
+              {sc.phone && <div style={{fontFamily:"monospace"}}>{sc.phone}</div>}
+              {sc.address && <div>{sc.address}</div>}
+            </div>
+          )}
+        </div>
+      )}
+      <div style={{marginBottom:16}}>
+        <span style={S.label}>Job Description</span>
+        <input type="text" value={jobDesc} onChange={e=>setJobDesc(e.target.value)} placeholder="Full bathroom remodel - tile, fixtures, vanity" style={S.inp} />
+      </div>
+      <NumField label="Hourly Rate" val={rate} set={setRate} pre="$" suf="/hr" hint="Market range for your experience: $75-$150/hr" />
+      <NumField label="Hours Per Day" val={hours} set={setHours} suf="hrs" />
+      <NumField label="Days on Job" val={days} set={setDays} suf="days" />
+      <NumField label="Materials Cost" val={mats} set={setMats} pre="$" hint="Your actual cost - markup applied below." />
+      <NumField label="Materials Markup" val={markup} set={setMarkup} suf="%" hint="Industry standard: 10-20%." />
+      <div style={{borderTop:"1px solid #3a2e1a",paddingTop:16,marginTop:8}}>
+        {[["Labor",fmt(labor)],["Materials + "+markup+"% markup",fmt(matM)]].map(([l,v])=>(
+          <div key={l} style={{display:"flex",justifyContent:"space-between",padding:"5px 0"}}>
+            <span style={{color:"#8a7a5a",fontSize:13}}>{l}</span>
+            <span style={{fontFamily:"monospace",color:"#f0e0b0",fontSize:13}}>{v}</span>
+          </div>
+        ))}
+        <div style={{borderTop:"1px solid #3a2e1a",marginTop:12,paddingTop:12,display:"flex",justifyContent:"space-between",alignItems:"baseline"}}>
+          <span style={{fontSize:13,letterSpacing:"0.1em",textTransform:"uppercase",color:"#8a7a5a"}}>Total Bid</span>
+          <span style={{fontFamily:"monospace",fontSize:30,color:"#c8a84a",fontWeight:700}}>{fmt(total)}</span>
+        </div>
+      </div>
+      <div style={{marginTop:16,marginBottom:12}}>
+        <span style={S.label}>Additional Notes</span>
+        <textarea value={note} onChange={e=>setNote(e.target.value)} placeholder="Scope details, exclusions, conditions..." rows={3}
+          style={{...S.inp,resize:"none",fontFamily:"Georgia,serif"}} />
+      </div>
+      <button onClick={emailBid} style={{...S.goldBtn,marginBottom:10}}>&#x2709; Email Bid Summary</button>
+      <button onClick={async()=>{
+        const sc2 = clientId ? clients.find(c=>c.id===Number(clientId)) : null;
+        await recordBid(sc2,jobDesc,total,settings);
+        alert("Bid recorded in Reports.");
+      }} style={S.ghostBtn}>&#x2713; Record This Bid</button>
+    </div>
+  );
+}
+
+// ── RECEIPTS TAB ─────────────────────────────────────────────────
+function ReceiptsTab({settings}) {
+  const [receipts,setReceipts] = useState([]);
+  const [loaded,setLoaded] = useState(false);
+  const [photo,setPhoto] = useState(null);
+  const [photoBase64,setPhotoBase64] = useState(null);
+  const [photoMime,setPhotoMime] = useState("image/jpeg");
+  const [reading,setReading] = useState(false);
+  const [readError,setReadError] = useState(null);
+  const [items,setItems] = useState([]); // extracted line items for review
+  const [saving,setSaving] = useState(false);
+  const [view,setView] = useState("capture"); // capture | review
+  const [addingPage,setAddingPage] = useState(false);
+
+  // Manual entry state
+  const [manDate,setManDate] = useState(new Date().toISOString().slice(0,10));
+  const [manAmount,setManAmount] = useState("");
+  const [manCat,setManCat] = useState("Materials");
+  const [manDesc,setManDesc] = useState("");
+
+  useEffect(()=>{
+    sb.from("d2r_receipts").select("*").order("date",{ascending:false}).then(({data})=>{
+      setReceipts(data||[]); setLoaded(true);
+    });
+  },[]);
+
+  function handlePhoto(e) {
+    const file = e.target.files[0];
+    if(!file) return;
+    setPhotoMime(file.type||"image/jpeg");
+    setReadError(null);
+    const r = new FileReader();
+    r.onload = async ev => {
+      const dataUrl = ev.target.result;
+      const base64 = dataUrl.split(",")[1];
+      setPhoto(dataUrl);
+      setPhotoBase64(base64);
+      if(settings.anthropicKey) {
+        await readReceipt(base64, file.type||"image/jpeg");
+      } else {
+        setReadError("Add your Anthropic API key in Settings to enable auto-reading.");
+      }
+    };
+    r.readAsDataURL(file);
+  }
+
+  async function readReceipt(base64, mime) {
+    setReading(true);
+    setReadError(null);
+    try {
+      const res = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-api-key": settings.anthropicKey,
+          "anthropic-version": "2023-06-01",
+          "anthropic-dangerous-direct-browser-access": "true"
+        },
+        body: JSON.stringify({
+          model: "claude-sonnet-4-20250514",
+          max_tokens: 800,
+          system: `You are reading a contractor expense receipt. Extract ALL line items including sales tax.
+Respond ONLY with a valid JSON array — no markdown, no explanation, no code fences.
+Each item:
+{
+  "description": "short item name (vendor + item, max 50 chars)",
+  "amount": number (pre-tax item amount, no dollar sign),
+  "category": one of exactly: Materials, Tools, Fuel/Mileage, Permits, Subs, Tax, Other,
+  "date": "YYYY-MM-DD if visible on receipt, else empty string"
+}
+Rules:
+- Extract each line item at its pre-tax price
+- Always add sales tax as a SEPARATE final item with category "Tax" and description "Sales Tax"
+- If no sales tax on receipt, omit the tax line
+- If one receipt total with no line items visible, return one item with the total (no tax line)
+- Category guide: auto parts/lumber/plumbing/electrical/hardware = Materials, hand/power tools = Tools, gas/fuel = Fuel/Mileage
+- If you cannot read the receipt, return [{"description":"Unreadable receipt","amount":0,"category":"Other","date":""}]`,
+          messages: [{
+            role: "user",
+            content: [
+              {type:"image", source:{type:"base64", media_type:mime, data:base64}},
+              {type:"text", text:"Extract all line items from this receipt as a JSON array."}
+            ]
+          }]
+        })
+      });
+
+      if(!res.ok) {
+        const err = await res.json().catch(()=>({}));
+        throw new Error(err.error?.message || "API error "+res.status);
+      }
+
+      const data = await res.json();
+      const text = (data.content||[]).filter(b=>b.type==="text").map(b=>b.text).join("").trim();
+
+      // Strip any accidental markdown
+      const cleaned = text.replace(/^```(?:json)?/,"").replace(/```$/,"").trim();
+      const parsed = JSON.parse(cleaned);
+
+      if(!Array.isArray(parsed) || parsed.length===0) throw new Error("No items found");
+
+      // Add today's date to items that have no date
+      const today = new Date().toISOString().slice(0,10);
+      const withDates = parsed.map(item=>({
+        ...item,
+        date: item.date || today,
+        amount: Number(item.amount)||0,
+      }));
+
+      setItems(withDates);
+      setView("review");
+    } catch(err) {
+      console.error("Receipt read error:", err);
+      setReadError("Couldn't read receipt: "+err.message+". You can enter it manually below.");
+      // Fall through to manual entry
+    }
+    setReading(false);
+  }
+
+  async function readAnotherPage(e) {
+    const file = e.target.files[0];
+    if(!file) return;
+    setAddingPage(true);
+    const r = new FileReader();
+    r.onload = async ev => {
+      const base64 = ev.target.result.split(",")[1];
+      const mime = file.type||"image/jpeg";
+      try {
+        const res = await fetch("https://api.anthropic.com/v1/messages", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-api-key": settings.anthropicKey,
+            "anthropic-version": "2023-06-01",
+            "anthropic-dangerous-direct-browser-access": "true"
+          },
+          body: JSON.stringify({
+            model: "claude-sonnet-4-20250514",
+            max_tokens: 800,
+            system: `You are reading a continuation page of a contractor expense receipt. Extract ALL line items including sales tax.
+Respond ONLY with a valid JSON array — no markdown, no explanation, no code fences.
+Each item: {"description":"short item name","amount":number,"category":"Materials|Tools|Fuel/Mileage|Permits|Subs|Tax|Other","date":"YYYY-MM-DD or empty"}
+Rules: Extract pre-tax item amounts. If this page shows a tax total, add it as {"description":"Sales Tax","amount":number,"category":"Tax","date":""}.
+If page is blank or unreadable return [].`,
+            messages: [{
+              role: "user",
+              content: [
+                {type:"image", source:{type:"base64", media_type:mime, data:base64}},
+                {type:"text", text:"Extract all line items from this receipt page as a JSON array."}
+              ]
+            }]
+          })
+        });
+        const data = await res.json();
+        const text = (data.content||[]).filter(b=>b.type==="text").map(b=>b.text).join("").trim();
+        const cleaned = text.replace(/^```(?:json)?/,"").replace(/```$/,"").trim();
+        const parsed = JSON.parse(cleaned);
+        if(Array.isArray(parsed) && parsed.length>0) {
+          const today = new Date().toISOString().slice(0,10);
+          const newItems = parsed.map(item=>({
+            ...item,
+            date: item.date||today,
+            amount: Number(item.amount)||0,
+          }));
+          setItems(p=>[...p,...newItems]);
+        }
+      } catch(err) {
+        alert("Couldn't read page: "+err.message);
+      }
+      setAddingPage(false);
+    };
+    r.readAsDataURL(file);
+  }
+
+  async function saveItems() {
+    if(!items.length) return;
+    setSaving(true);
+    try {
+      const inserts = items.map(it=>({
+        date: it.date,
+        amount: Number(it.amount),
+        category: it.category,
+        description: it.description,
+        has_photo: true,
+      }));
+      const {data} = await sb.from("d2r_receipts").insert(inserts).select();
+      setReceipts(p=>[...(data||[]),...p]);
+      // Optionally email summary
+      if(settings.receiptEmail) {
+        const body = items.map(it=>`${it.date} | ${it.category} | $${Number(it.amount).toFixed(2)} | ${it.description}`).join("\n");
+        const total = items.reduce((s,it)=>s+Number(it.amount),0);
+        window.open("mailto:"+settings.receiptEmail
+          +"?subject="+encodeURIComponent("Receipt Log — Dream to Reality")
+          +"&body="+encodeURIComponent(body+"\n\nTOTAL: $"+total.toFixed(2)));
+      }
+      // Reset
+      setPhoto(null); setPhotoBase64(null); setItems([]); setView("capture");
+    } catch(err) {
+      alert("Save failed: "+err.message);
+    }
+    setSaving(false);
+  }
+
+  async function saveManual() {
+    if(!manAmount) return;
+    setSaving(true);
+    try {
+      const {data} = await sb.from("d2r_receipts").insert({
+        date: manDate, amount: Number(manAmount), category: manCat, description: manDesc, has_photo: false
+      }).select().single();
+      setReceipts(p=>[data,...p]);
+      setManAmount(""); setManDesc(""); setManCat("Materials");
+    } finally { setSaving(false); }
+  }
+
+  async function deleteReceipt(id) {
+    await sb.from("d2r_receipts").delete().eq("id",id);
+    setReceipts(p=>p.filter(r=>r.id!==id));
+  }
+
+  function exportReceipts() {
+    const rows=[["Date","Amount","Category","Description","Has Photo"]];
+    receipts.forEach(r=>rows.push([r.date,r.amount,r.category,r.description,r.has_photo?"Yes":"No"]));
+    downloadCSV("receipts.csv",rows);
+  }
+
+  function updateItem(idx, field, val) {
+    setItems(p=>p.map((it,i)=>i===idx?{...it,[field]:val}:it));
+  }
+
+  function removeItem(idx) {
+    setItems(p=>p.filter((_,i)=>i!==idx));
+  }
+
+  const bycat = CATS.reduce((a,c)=>{
+    a[c]=receipts.filter(r=>r.category===c).reduce((s,r)=>s+Number(r.amount),0); return a;
+  },{});
+  const total = receipts.reduce((s,r)=>s+Number(r.amount),0);
+
+  if(!loaded) return <Loading />;
+
+  // ── REVIEW SCREEN ──────────────────────────────────────────────
+  if(view==="review") return (
+    <div>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
+        <div style={{fontSize:16,fontWeight:700,color:"#c8a84a"}}>Review Items</div>
+        <button onClick={()=>setView("capture")} style={{background:"none",border:"none",color:"#a08a5a",cursor:"pointer",fontSize:13}}>&#x2190; Retake</button>
+      </div>
+      <div style={{fontSize:12,color:"#9a8a6a",marginBottom:16}}>
+        {items.length} item{items.length!==1?"s":""} found. Edit anything wrong, add more pages, then save all at once.
+      </div>
+
+      {items.map((it,idx)=>(
+        <div key={idx} style={{...S.card,marginBottom:10,border:"1px solid #3a2e1a"}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:8}}>
+            <div style={{fontSize:12,color:"#9a8a6a"}}>Item {idx+1}</div>
+            <button onClick={()=>removeItem(idx)} style={{background:"none",border:"none",color:"#5a4040",cursor:"pointer",fontSize:16,lineHeight:1}}>&times;</button>
+          </div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:8}}>
+            <div>
+              <span style={S.label}>Date</span>
+              <input type="date" value={it.date} onChange={e=>updateItem(idx,"date",e.target.value)} style={{...S.inp,fontSize:13,padding:"7px"}} />
+            </div>
+            <div>
+              <span style={S.label}>Amount</span>
+              <div style={{display:"flex",alignItems:"center",background:"#0d0b06",border:"1px solid #3a2e1a",borderRadius:4}}>
+                <span style={{padding:"0 8px",color:"#c8a84a",fontFamily:"monospace"}}>$</span>
+                <input type="number" value={it.amount} onChange={e=>updateItem(idx,"amount",e.target.value)}
+                  style={{flex:1,background:"transparent",border:"none",outline:"none",color:"#f0e0b0",fontFamily:"'Courier New',monospace",fontSize:15,padding:"7px 4px"}} />
+              </div>
+            </div>
+          </div>
+          <div style={{marginBottom:8}}>
+            <span style={S.label}>Category</span>
+            <select value={it.category} onChange={e=>updateItem(idx,"category",e.target.value)}
+              style={{...S.inp,fontSize:13,padding:"7px"}}>
+              {CATS.map(c=><option key={c}>{c}</option>)}
+            </select>
+          </div>
+          <div>
+            <span style={S.label}>Description</span>
+            <input type="text" value={it.description} onChange={e=>updateItem(idx,"description",e.target.value)}
+              style={{...S.inp,fontSize:13,padding:"7px"}} />
+          </div>
+        </div>
+      ))}
+
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}}>
+        <button onClick={()=>setItems(p=>[...p,{date:new Date().toISOString().slice(0,10),amount:0,category:"Materials",description:""}])}
+          style={S.ghostBtn}>+ Add Item</button>
+        <label style={{...S.ghostBtn,display:"flex",alignItems:"center",justifyContent:"center",gap:6,cursor:"pointer",border:"1px solid #4a7a4a",color:addingPage?"#5a5040":"#7aba4a"}}>
+          {addingPage
+            ? <><div style={{width:7,height:7,borderRadius:"50%",background:"#7aba4a",animation:"pulse 1s infinite"}} /> Reading page...</>
+            : <>&#x1F4F7; Add Another Page</>
+          }
+          <input type="file" accept="image/*" capture="environment" onChange={readAnotherPage} style={{display:"none"}} disabled={addingPage} />
+        </label>
+      </div>
+      <label style={{...S.ghostBtn,display:"flex",alignItems:"center",justifyContent:"center",gap:6,cursor:"pointer",marginBottom:10,border:"1px solid #4a7a4a",color:addingPage?"#5a5040":"#7aba4a"}}>
+        {addingPage ? "Reading..." : <>&#x1F5BC; Add Page from Gallery</>}
+        <input type="file" accept="image/*" onChange={readAnotherPage} style={{display:"none"}} disabled={addingPage} />
+      </label>
+
+      <div style={{background:"#1a1508",border:"1px solid #3a2e1a",borderRadius:4,padding:"10px 14px",marginBottom:12,display:"flex",justifyContent:"space-between"}}>
+        <span style={{color:"#9a8a6a",fontSize:13}}>Total</span>
+        <span style={{fontFamily:"monospace",color:"#c8a84a",fontSize:15,fontWeight:700}}>
+          {fmt(items.reduce((s,it)=>s+Number(it.amount),0))}
+        </span>
+      </div>
+
+      <button onClick={saveItems} disabled={saving||!items.length}
+        style={{...S.goldBtn,opacity:(saving||!items.length)?0.6:1}}>
+        {saving?"Saving...":"Save "+items.length+" Item"+(items.length!==1?"s":"")+" to Records"}
+      </button>
+    </div>
+  );
+
+  // ── CAPTURE SCREEN (default) ────────────────────────────────────
+  return (
+    <div>
+      {/* Photo area */}
+      {photo ? (
+        <div style={{position:"relative",marginBottom:16}}>
+          <img src={photo} alt="Receipt" style={{width:"100%",borderRadius:6,border:"1px solid #3a2e1a",maxHeight:200,objectFit:"cover",display:"block"}} />
+          <div style={{position:"absolute",top:8,right:8,display:"flex",gap:6}}>
+            <label style={{background:"rgba(13,11,6,0.9)",border:"1px solid #3a2e1a",color:"#f0e0b0",borderRadius:4,padding:"5px 10px",cursor:"pointer",fontSize:12}}>
+              Retake<input type="file" accept="image/*" capture="environment" onChange={handlePhoto} style={{display:"none"}} />
+            </label>
+            {photoBase64 && !reading && (
+              <button onClick={()=>readReceipt(photoBase64,photoMime)}
+                style={{background:"#2a200a",border:"1px solid #c8a84a",color:"#c8a84a",borderRadius:4,padding:"5px 10px",cursor:"pointer",fontSize:12}}>
+                Re-read
+              </button>
+            )}
+          </div>
+        </div>
+      ) : (
+        <div style={{marginBottom:16}}>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:4}}>
+            <label style={{display:"block",background:"#1a1508",border:"2px dashed #3a2e1a",borderRadius:6,padding:"20px 12px",color:"#a08a5a",cursor:"pointer",textAlign:"center"}}>
+              <div style={{fontSize:28,marginBottom:4}}>&#128247;</div>
+              <div style={{fontSize:13}}>Camera</div>
+              <input type="file" accept="image/*" capture="environment" onChange={handlePhoto} style={{display:"none"}} />
+            </label>
+            <label style={{display:"block",background:"#1a1508",border:"2px dashed #3a2e1a",borderRadius:6,padding:"20px 12px",color:"#a08a5a",cursor:"pointer",textAlign:"center"}}>
+              <div style={{fontSize:28,marginBottom:4}}>&#128444;</div>
+              <div style={{fontSize:13}}>Gallery</div>
+              <input type="file" accept="image/*" onChange={handlePhoto} style={{display:"none"}} />
+            </label>
+          </div>
+          <div style={{fontSize:11,color:"#9a8a6a",textAlign:"center"}}>
+            {settings.anthropicKey ? "AI will read all items automatically" : "Add API key in Settings to enable auto-read"}
+          </div>
+        </div>
+      )}
+
+      {reading && (
+        <div style={{background:"#1a1508",border:"1px solid #3a2e1a",borderRadius:6,padding:"12px 14px",marginBottom:12,display:"flex",alignItems:"center",gap:10}}>
+          <div style={{width:8,height:8,borderRadius:"50%",background:"#c8a84a",animation:"pulse 1s infinite"}} />
+          <span style={{fontSize:13,color:"#c8a84a"}}>Reading receipt&#8230; extracting all items</span>
+        </div>
+      )}
+
+      {readError && (
+        <div style={{background:"#1a0a0a",border:"1px solid #5a2a2a",borderRadius:6,padding:"10px 14px",marginBottom:12}}>
+          <div style={{fontSize:12,color:"#c8604a"}}>{readError}</div>
+        </div>
+      )}
+
+      {/* Divider */}
+      <div style={{borderTop:"1px solid #2a200a",paddingTop:16,marginBottom:12}}>
+        <div style={{fontSize:11,color:"#9a8a6a",textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:12}}>
+          {photo ? "Or add manually" : "Manual entry"}
+        </div>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}}>
+          <div>
+            <span style={S.label}>Date</span>
+            <input type="date" value={manDate} onChange={e=>setManDate(e.target.value)} style={S.inp} />
+          </div>
+          <div>
+            <span style={S.label}>Amount</span>
+            <input type="number" placeholder="0.00" value={manAmount} onChange={e=>setManAmount(e.target.value)} style={S.numInp} />
+          </div>
+          <div style={{gridColumn:"1 / -1"}}>
+            <span style={S.label}>Category</span>
+            <select value={manCat} onChange={e=>setManCat(e.target.value)} style={S.inp}>
+              {CATS.map(c=><option key={c}>{c}</option>)}
+            </select>
+          </div>
+          <div style={{gridColumn:"1 / -1"}}>
+            <span style={S.label}>Description</span>
+            <input type="text" placeholder="What was it for?" value={manDesc} onChange={e=>setManDesc(e.target.value)} style={S.inp} />
+          </div>
+        </div>
+        <button onClick={saveManual} disabled={saving||!manAmount}
+          style={{...S.outlineBtn,opacity:(saving||!manAmount)?0.5:1,marginBottom:4}}>
+          {saving?"Saving...":"+ Add to Records"}
+        </button>
+      </div>
+
+      {/* Export */}
+      <button onClick={exportReceipts} style={{...S.ghostBtn,marginBottom:20}} disabled={!receipts.length}>&darr; Export CSV</button>
+
+      {/* Totals */}
+      {total>0 && (
+        <div style={{marginBottom:16}}>
+          <span style={{...S.label,marginBottom:8,display:"block"}}>By Category (all time)</span>
+          {CATS.filter(c=>bycat[c]>0).map(c=>(
+            <div key={c} style={{display:"flex",justifyContent:"space-between",padding:"6px 0",borderTop:"1px solid #2a200a"}}>
+              <span style={{color:"#9a8a6a",fontSize:13}}>{c}</span>
+              <span style={{fontFamily:"monospace",color:"#f0e0b0",fontSize:13}}>{fmt(bycat[c])}</span>
+            </div>
+          ))}
+          <div style={{display:"flex",justifyContent:"space-between",padding:"10px 0",borderTop:"1px solid #c8a84a",marginTop:4}}>
+            <span style={{color:"#c8a84a",fontSize:13,textTransform:"uppercase",letterSpacing:"0.1em"}}>Total</span>
+            <span style={{fontFamily:"monospace",color:"#c8a84a",fontSize:18,fontWeight:700}}>{fmt(total)}</span>
+          </div>
+        </div>
+      )}
+
+      {/* Receipt log */}
+      {receipts.slice(0,20).map(r=>(
+        <div key={r.id} style={S.row}>
+          <div>
+            <div style={{color:"#f0e0b0",fontSize:14}}>{r.description||r.category}{r.has_photo?" &#x1F4CE;":""}</div>
+            <div style={{color:"#8a7060",fontSize:12}}>{r.date} &middot; {r.category}</div>
+          </div>
+          <div style={{display:"flex",alignItems:"center",gap:10}}>
+            <span style={{fontFamily:"monospace",color:"#c8a84a"}}>{fmt(r.amount)}</span>
+            <button onClick={()=>deleteReceipt(r.id)} style={S.delBtn}>&times;</button>
+          </div>
+        </div>
+      ))}
+      {receipts.length>20 && <div style={{textAlign:"center",color:"#9a8a6a",fontSize:12,paddingTop:8}}>Showing 20 of {receipts.length}. See Reports for full history.</div>}
+    </div>
+  );
+}
+
+// ── SUBS TAB ──────────────────────────────────────────────────────
+function SubsTab({directory,setDirectory}) {
+  const [view,setView] = useState("list");
+  const [selSub,setSelSub] = useState(null);
+  const [logs,setLogs] = useState([]);
+  const [payments,setPayments] = useState([]);
+  const [detailLoading,setDetailLoading] = useState(false);
+  const [saving,setSaving] = useState(false);
+
+  const emptyDir={name:"",phone:"",trade:"",default_rate:"",ssn_last4:""};
+  const [dirForm,setDirForm] = useState(emptyDir);
+  const [editingSubId,setEditingSubId] = useState(null);
+  const setDF = k => e => setDirForm(p=>({...p,[k]:e.target.value}));
+
+  const [logDate,setLogDate] = useState(new Date().toISOString().slice(0,10));
+  const [payType,setPayType] = useState("hourly");
+  const [logHours,setLogHours] = useState("");
+  const [flatAmt,setFlatAmt] = useState("");
+  const [logNotes,setLogNotes] = useState("");
+  const [pmtDate,setPmtDate] = useState(new Date().toISOString().slice(0,10));
+  const [pmtAmount,setPmtAmount] = useState("");
+  const [pmtNotes,setPmtNotes] = useState("");
+
+  async function openSub(sub) {
+    setSelSub(sub); setDetailLoading(true); setView("detail");
+    const [{data:l},{data:p}] = await Promise.all([
+      sb.from("d2r_sub_work_logs").select("*").eq("sub_id",sub.id).order("date",{ascending:false}),
+      sb.from("d2r_sub_payments").select("*").eq("sub_id",sub.id).order("date",{ascending:false}),
+    ]);
+    setLogs(l||[]); setPayments(p||[]); setDetailLoading(false);
+  }
+
+  async function saveSub() {
+    if(!dirForm.name) return;
+    setSaving(true);
+    try {
+      const payload={name:dirForm.name,phone:dirForm.phone,trade:dirForm.trade,default_rate:Number(dirForm.default_rate)||0,ssn_last4:dirForm.ssn_last4||""};
+      if(editingSubId) {
+        await sb.from("d2r_sub_directory").update(payload).eq("id",editingSubId);
+        setDirectory(p=>p.map(s=>s.id===editingSubId?{...payload,id:editingSubId}:s));
+      } else {
+        const {data} = await sb.from("d2r_sub_directory").insert(payload).select().single();
+        setDirectory(p=>[...p,data].sort((a,b)=>a.name.localeCompare(b.name)));
+      }
+      setDirForm(emptyDir); setEditingSubId(null); setView("list");
+    } finally { setSaving(false); }
+  }
+
+  async function deleteSub() {
+    if(!confirm("Remove "+selSub.name+"? All their logs and payments will be deleted.")) return;
+    await sb.from("d2r_sub_directory").delete().eq("id",selSub.id);
+    setDirectory(p=>p.filter(s=>s.id!==selSub.id));
+    setSelSub(null); setView("list");
+  }
+
+  async function addLog() {
+    setSaving(true);
+    try {
+      const payload={sub_id:selSub.id,date:logDate,pay_type:payType,hours:payType==="hourly"?Number(logHours):0,flat_amount:payType==="flat"?Number(flatAmt):0,notes:logNotes};
+      const {data} = await sb.from("d2r_sub_work_logs").insert(payload).select().single();
+      setLogs(p=>[data,...p]);
+      setLogHours(""); setFlatAmt(""); setLogNotes(""); setView("detail");
+    } finally { setSaving(false); }
+  }
+
+  async function deleteLog(id) {
+    await sb.from("d2r_sub_work_logs").delete().eq("id",id);
+    setLogs(p=>p.filter(l=>l.id!==id));
+  }
+
+  async function addPayment() {
+    if(!pmtAmount) return;
+    setSaving(true);
+    try {
+      const {data} = await sb.from("d2r_sub_payments").insert({sub_id:selSub.id,date:pmtDate,amount:Number(pmtAmount),notes:pmtNotes}).select().single();
+      setPayments(p=>[data,...p]);
+      setPmtAmount(""); setPmtNotes(""); setView("detail");
+    } finally { setSaving(false); }
+  }
+
+  async function deletePayment(id) {
+    await sb.from("d2r_sub_payments").delete().eq("id",id);
+    setPayments(p=>p.filter(x=>x.id!==id));
+  }
+
+  async function exportAll() {
+    const [{data:subs},{data:logs},{data:pmts}] = await Promise.all([
+      sb.from("d2r_sub_directory").select("*"),
+      sb.from("d2r_sub_work_logs").select("*"),
+      sb.from("d2r_sub_payments").select("*"),
+    ]);
+    const rows=[["Sub","Trade","Date","Type","Hours","Amount Earned","Notes"]];
+    (logs||[]).forEach(l=>{
+      const sub=(subs||[]).find(s=>s.id===l.sub_id);
+      const earned=l.pay_type==="hourly"?Number(l.hours)*Number(sub?.default_rate||0):Number(l.flat_amount);
+      rows.push([sub?.name||"",sub?.trade||"",l.date,l.pay_type==="hourly"?"Hourly":"Flat",l.hours,earned.toFixed(2),l.notes]);
+    });
+    rows.push([]); rows.push(["PAYMENTS"]);
+    (pmts||[]).forEach(p=>{
+      const sub=(subs||[]).find(s=>s.id===p.sub_id);
+      rows.push([sub?.name||"","",p.date,"Payment","",Number(p.amount).toFixed(2),p.notes]);
+    });
+    rows.push([]); rows.push(["YEAR-TO-DATE SUMMARY"]);
+    (subs||[]).forEach(sub=>{
+      const sl=(logs||[]).filter(l=>l.sub_id===sub.id);
+      const earned=sl.reduce((s,l)=>s+(l.pay_type==="hourly"?Number(l.hours)*Number(sub.default_rate):Number(l.flat_amount)),0);
+      const paid=(pmts||[]).filter(p=>p.sub_id===sub.id).reduce((s,p)=>s+Number(p.amount),0);
+      rows.push([sub.name,sub.trade,"","","",earned.toFixed(2)+" earned / "+paid.toFixed(2)+" paid / "+(earned-paid).toFixed(2)+" owed",paid>=600?"NEEDS 1099":""]);
+    });
+    downloadCSV("subcontractors.csv",rows);
+  }
+
+  const rate = Number(selSub?.default_rate||0);
+  const earned = logs.reduce((s,l)=>s+(l.pay_type==="hourly"?Number(l.hours)*rate:Number(l.flat_amount)),0);
+  const paid = payments.reduce((s,p)=>s+Number(p.amount),0);
+  const owed = earned-paid;
+  const ytdPaid = payments.reduce((s,p)=>s+Number(p.amount),0);
+
+  if(view==="addSub") return (
+    <div>
+      <button onClick={()=>{setView(selSub?"detail":"list");setDirForm(emptyDir);setEditingSubId(null);}} style={S.backBtn}>&larr; Back</button>
+      <div style={S.sectionTitle}>{editingSubId?"Edit Sub":"New Sub"}</div>
+      <TextField label="Name" value={dirForm.name} onChange={setDF("name")} placeholder="Mike Johnson" />
+      <TextField label="Phone" value={dirForm.phone} onChange={setDF("phone")} type="tel" placeholder="(555) 000-0000" />
+      <TextField label="Trade" value={dirForm.trade} onChange={setDF("trade")} placeholder="Electrician, Plumber, Drywaller..." />
+      <TextField label="SSN Last 4" value={dirForm.ssn_last4||""} onChange={setDF("ssn_last4")} placeholder="####" />
+      <div style={{...S.hint,marginBottom:12}}>Last 4 digits only. Store full SSN in a locked note separately.</div>
+      <div style={{marginBottom:16}}>
+        <span style={S.label}>Default Rate/hr</span>
+        <div style={{display:"flex",alignItems:"center",background:"#1a1508",border:"1px solid #3a2e1a",borderRadius:4}}>
+          <span style={{padding:"0 10px",color:"#c8a84a",fontFamily:"monospace"}}>$</span>
+          <input type="number" value={dirForm.default_rate} onChange={setDF("default_rate")}
+            style={{flex:1,background:"transparent",border:"none",outline:"none",color:"#f0e0b0",fontFamily:"'Courier New',monospace",fontSize:16,padding:"10px 8px"}} />
+          <span style={{padding:"0 10px",color:"#8a7a5a",fontSize:13}}>/hr</span>
+        </div>
+      </div>
+      <div style={{display:"grid",gridTemplateColumns:editingSubId?"1fr 1fr":"1fr",gap:10,marginTop:8}}>
+        {editingSubId && <button onClick={deleteSub} style={{background:"none",border:"1px solid #5a2a2a",color:"#8a4a4a",borderRadius:4,padding:"12px 0",fontWeight:700,fontSize:12,cursor:"pointer"}}>Delete</button>}
+        <button onClick={saveSub} disabled={saving} style={{...S.goldBtn,opacity:saving?0.6:1}}>{saving?"Saving...":"Save Sub"}</button>
+      </div>
+    </div>
+  );
+
+  if(view==="addLog") return (
+    <div>
+      <button onClick={()=>setView("detail")} style={S.backBtn}>&larr; Back</button>
+      <div style={S.sectionTitle}>Log Work &mdash; {selSub?.name}</div>
+      <div style={{marginBottom:16}}>
+        <span style={{...S.label,marginBottom:8,display:"block"}}>Pay Type</span>
+        <div style={{display:"flex",gap:10}}>
+          {[["hourly","Hourly"],["flat","Flat Fee"]].map(([v,l])=>(
+            <button key={v} onClick={()=>setPayType(v)}
+              style={{flex:1,padding:"10px",borderRadius:4,border:"1px solid "+(payType===v?"#c8a84a":"#3a2e1a"),background:payType===v?"#2a200a":"#1a1508",color:payType===v?"#c8a84a":"#5a5040",cursor:"pointer",fontWeight:payType===v?700:400,fontSize:13}}>
+              {l}
+            </button>
+          ))}
+        </div>
+      </div>
+      <div style={{marginBottom:12}}>
+        <span style={S.label}>Date</span>
+        <input type="date" value={logDate} onChange={e=>setLogDate(e.target.value)} style={S.inp} />
+      </div>
+      {payType==="hourly" ? (
+        <div style={{marginBottom:12}}>
+          <span style={S.label}>Hours Worked</span>
+          <div style={{display:"flex",alignItems:"center",background:"#1a1508",border:"1px solid #3a2e1a",borderRadius:4}}>
+            <input type="number" placeholder="0" value={logHours} onChange={e=>setLogHours(e.target.value)}
+              style={{flex:1,background:"transparent",border:"none",outline:"none",color:"#f0e0b0",fontFamily:"'Courier New',monospace",fontSize:16,padding:"10px"}} />
+            <span style={{padding:"0 10px",color:"#8a7a5a",fontSize:13}}>hrs</span>
+          </div>
+          {logHours && <div style={{...S.hint,color:"#c8a84a"}}>Earned: {fmt(Number(logHours)*rate)} at {fmt(rate)}/hr</div>}
+        </div>
+      ) : (
+        <div style={{marginBottom:12}}>
+          <span style={S.label}>Flat Amount</span>
+          <div style={{display:"flex",alignItems:"center",background:"#1a1508",border:"1px solid #3a2e1a",borderRadius:4}}>
+            <span style={{padding:"0 10px",color:"#c8a84a",fontFamily:"monospace"}}>$</span>
+            <input type="number" placeholder="0.00" value={flatAmt} onChange={e=>setFlatAmt(e.target.value)}
+              style={{flex:1,background:"transparent",border:"none",outline:"none",color:"#f0e0b0",fontFamily:"'Courier New',monospace",fontSize:16,padding:"10px 8px"}} />
+          </div>
+        </div>
+      )}
+      <div style={{marginBottom:16}}>
+        <span style={S.label}>Notes</span>
+        <input type="text" value={logNotes} onChange={e=>setLogNotes(e.target.value)} placeholder="Demo, rough-in, finish work..." style={S.inp} />
+      </div>
+      <button onClick={addLog} disabled={saving} style={{...S.goldBtn,opacity:saving?0.6:1}}>{saving?"Saving...":"Log Work"}</button>
+    </div>
+  );
+
+  if(view==="addPayment") return (
+    <div>
+      <button onClick={()=>setView("detail")} style={S.backBtn}>&larr; Back</button>
+      <div style={S.sectionTitle}>Log Payment &mdash; {selSub?.name}</div>
+      <div style={{...S.card,marginBottom:20,background:"#0f1a0a",border:"1px solid #2a4a1a"}}>
+        <div style={{fontSize:11,color:"#7aba4a",letterSpacing:"0.1em",textTransform:"uppercase",marginBottom:4}}>Currently Owed</div>
+        <div style={{fontFamily:"monospace",fontSize:26,color:"#c8a84a",fontWeight:700}}>{fmt(owed)}</div>
+      </div>
+      <div style={{marginBottom:12}}>
+        <span style={S.label}>Date</span>
+        <input type="date" value={pmtDate} onChange={e=>setPmtDate(e.target.value)} style={S.inp} />
+      </div>
+      <div style={{marginBottom:12}}>
+        <span style={S.label}>Amount Paid</span>
+        <div style={{display:"flex",alignItems:"center",background:"#1a1508",border:"1px solid #3a2e1a",borderRadius:4}}>
+          <span style={{padding:"0 10px",color:"#c8a84a",fontFamily:"monospace"}}>$</span>
+          <input type="number" placeholder="0.00" value={pmtAmount} onChange={e=>setPmtAmount(e.target.value)}
+            style={{flex:1,background:"transparent",border:"none",outline:"none",color:"#f0e0b0",fontFamily:"'Courier New',monospace",fontSize:16,padding:"10px 8px"}} />
+        </div>
+      </div>
+      <div style={{marginBottom:16}}>
+        <span style={S.label}>Notes</span>
+        <input type="text" value={pmtNotes} onChange={e=>setPmtNotes(e.target.value)} placeholder="Check #, cash, Venmo..." style={S.inp} />
+      </div>
+      <button onClick={addPayment} disabled={saving||!pmtAmount} style={{...S.goldBtn,opacity:(saving||!pmtAmount)?0.6:1}}>{saving?"Saving...":"Record Payment"}</button>
+    </div>
+  );
+
+  if(view==="detail" && selSub) return (
+    <div>
+      <button onClick={()=>setView("list")} style={S.backBtn}>&larr; Back</button>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:16}}>
+        <div>
+          <div style={{fontSize:19,fontWeight:700,color:"#f0e0b0"}}>{selSub.name}</div>
+          {selSub.trade && <div style={{fontSize:13,color:"#c8a84a",marginTop:2}}>{selSub.trade}</div>}
+          {selSub.phone && <div style={{fontSize:12,color:"#8a7060",fontFamily:"monospace",marginTop:2}}>{selSub.phone}</div>}
+          {selSub.ssn_last4 && <div style={{fontSize:12,color:"#8a7060",marginTop:2}}>SSN: ***-**-{selSub.ssn_last4}</div>}
+          <div style={{fontSize:12,color:"#8a7a5a",marginTop:2}}>{fmt(selSub.default_rate)}/hr default</div>
+        </div>
+        <button onClick={()=>{setDirForm({...selSub,default_rate:selSub.default_rate||""});setEditingSubId(selSub.id);setView("addSub");}}
+          style={{background:"none",border:"1px solid #3a2e1a",borderRadius:4,color:"#8a7a5a",fontSize:12,padding:"5px 10px",cursor:"pointer"}}>Edit</button>
+      </div>
+
+      {detailLoading ? <Loading /> : (
+        <>
+          <div style={{...S.card,background:"#0f1a0a",border:"1px solid #2a4a1a",marginBottom:16}}>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,textAlign:"center"}}>
+              {[["Earned",fmt(earned),"#8a7a5a"],["Paid",fmt(paid),"#4a8a4a"],["Owed",fmt(owed),owed>0?"#c8a84a":"#4a8a4a"]].map(([l,v,col])=>(
+                <div key={l}>
+                  <div style={{fontSize:9,letterSpacing:"0.12em",color:"#5a5040",textTransform:"uppercase",marginBottom:4}}>{l}</div>
+                  <div style={{fontFamily:"monospace",fontSize:15,color:col,fontWeight:700}}>{v}</div>
+                </div>
+              ))}
+            </div>
+            {ytdPaid>=600 && <div style={{marginTop:10,paddingTop:10,borderTop:"1px solid #2a4a1a",fontSize:11,color:"#c8a84a",textAlign:"center"}}>&#9888; 1099 required &mdash; {fmt(ytdPaid)} paid this year</div>}
+          </div>
+
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:20}}>
+            <button onClick={()=>setView("addLog")} style={S.outlineBtn}>+ Log Work</button>
+            <button onClick={()=>setView("addPayment")} style={S.goldBtn}>$ Pay Sub</button>
+          </div>
+
+          {logs.length>0 && (
+            <div style={{marginBottom:16}}>
+              <span style={{...S.label,marginBottom:8,display:"block"}}>Work Log</span>
+              {logs.map(l=>{
+                const amt=l.pay_type==="hourly"?Number(l.hours)*rate:Number(l.flat_amount);
+                return (
+                  <div key={l.id} style={S.row}>
+                    <div>
+                      <div style={{color:"#f0e0b0",fontSize:14}}>{l.date}</div>
+                      <div style={{color:"#5a5040",fontSize:12}}>
+                        {l.pay_type==="hourly"?l.hours+" hrs @ "+fmt(rate)+"/hr":"Flat fee"}
+                        {l.notes?" \u2014 "+l.notes:""}
+                      </div>
+                    </div>
+                    <div style={{display:"flex",alignItems:"center",gap:10}}>
+                      <span style={{fontFamily:"monospace",color:"#c8a84a",fontSize:13}}>{fmt(amt)}</span>
+                      <button onClick={()=>deleteLog(l.id)} style={S.delBtn}>&times;</button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {payments.length>0 && (
+            <div>
+              <span style={{...S.label,marginBottom:8,display:"block"}}>Payments Made</span>
+              {payments.map(p=>(
+                <div key={p.id} style={S.row}>
+                  <div>
+                    <div style={{color:"#f0e0b0",fontSize:14}}>{p.date}{p.notes?" \u2014 "+p.notes:""}</div>
+                  </div>
+                  <div style={{display:"flex",alignItems:"center",gap:10}}>
+                    <span style={{fontFamily:"monospace",color:"#4a9a4a",fontSize:13}}>{fmt(p.amount)}</span>
+                    <button onClick={()=>deletePayment(p.id)} style={S.delBtn}>&times;</button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+          {!logs.length && !payments.length && <div style={{textAlign:"center",color:"#5a5040",padding:32,fontSize:13}}>No entries yet.</div>}
+        </>
+      )}
+    </div>
+  );
+
+  return (
+    <div>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:20}}>
+        <button onClick={()=>{setDirForm(emptyDir);setEditingSubId(null);setSelSub(null);setView("addSub");}} style={S.outlineBtn}>+ New Sub</button>
+        <button onClick={exportAll} style={S.ghostBtn} disabled={!directory.length}>&darr; Export CSV</button>
+      </div>
+      {!directory.length
+        ? <div style={{textAlign:"center",color:"#8a7060",padding:48,fontSize:14}}>No subs yet. Add one above.</div>
+        : <div style={{fontSize:11,color:"#9a8a6a",marginBottom:12,letterSpacing:"0.05em"}}>Tap a sub to log hours, record payments, and view their balance.</div>
+      }
+      {directory.map(sub=>(
+        <button key={sub.id} onClick={()=>openSub(sub)}
+          style={{...S.card,cursor:"pointer",textAlign:"left",width:"100%",marginBottom:8,border:"1px solid #2a200a",display:"block"}}>
+          <div style={{color:"#f0e0b0",fontWeight:600,fontSize:15,marginBottom:3}}>{sub.name}</div>
+          {sub.trade && <div style={{color:"#c8a84a",fontSize:12,marginBottom:1}}>{sub.trade}</div>}
+          {sub.phone && <div style={{color:"#8a7060",fontSize:12,fontFamily:"monospace",marginBottom:1}}>{sub.phone}</div>}
+          {sub.default_rate && <div style={{color:"#8a7a5a",fontSize:12}}>{fmt(sub.default_rate)}/hr</div>}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+
+// ── MILEAGE LOG TAB ───────────────────────────────────────────────
+function MileageTab() {
+  const [logs,setLogs] = useState([]);
+  const [loaded,setLoaded] = useState(false);
+  const [date,setDate] = useState(new Date().toISOString().slice(0,10));
+  const [destination,setDestination] = useState("");
+  const [miles,setMiles] = useState("");
+  const [purpose,setPurpose] = useState("");
+  const [saving,setSaving] = useState(false);
+  const RATE = 0.70; // IRS 2025 standard mileage rate
+
+  useEffect(()=>{
+    sb.from("d2r_mileage").select("*").order("date",{ascending:false}).then(({data})=>{
+      setLogs(data||[]); setLoaded(true);
+    });
+  },[]);
+
+  async function add() {
+    if(!miles||!destination) return;
+    setSaving(true);
+    try {
+      const {data} = await sb.from("d2r_mileage").insert({date,destination,miles:Number(miles),purpose}).select().single();
+      setLogs(p=>[data,...p]);
+      setDestination(""); setMiles(""); setPurpose("");
+    } finally { setSaving(false); }
+  }
+
+  async function remove(id) {
+    await sb.from("d2r_mileage").delete().eq("id",id);
+    setLogs(p=>p.filter(l=>l.id!==id));
+  }
+
+  function exportMileage() {
+    const rows=[["Date","Destination","Miles","Purpose","Deduction Value"]];
+    logs.forEach(l=>rows.push([l.date,l.destination,l.miles,l.purpose,(Number(l.miles)*RATE).toFixed(2)]));
+    const total = logs.reduce((s,l)=>s+Number(l.miles),0);
+    rows.push([]); rows.push(["TOTAL","",total.toFixed(1),"",(total*RATE).toFixed(2)]);
+    downloadCSV("mileage.csv",rows);
+  }
+
+  const totalMiles = logs.reduce((s,l)=>s+Number(l.miles),0);
+  const totalDeduction = totalMiles*RATE;
+
+  if(!loaded) return <Loading />;
+
+  return (
+    <div>
+      <div style={{...S.card,background:"#0f1a0a",border:"1px solid #2a4a1a",marginBottom:20}}>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+          <div>
+            <div style={{fontSize:9,letterSpacing:"0.12em",color:"#5a5040",textTransform:"uppercase",marginBottom:4}}>Total Miles</div>
+            <div style={{fontFamily:"monospace",fontSize:18,color:"#f0e0b0",fontWeight:700}}>{totalMiles.toFixed(1)}</div>
+          </div>
+          <div>
+            <div style={{fontSize:9,letterSpacing:"0.12em",color:"#5a5040",textTransform:"uppercase",marginBottom:4}}>Deduction Value</div>
+            <div style={{fontFamily:"monospace",fontSize:18,color:"#c8a84a",fontWeight:700}}>{fmt(totalDeduction)}</div>
+          </div>
+        </div>
+        <div style={{fontSize:10,color:"#5a5040",marginTop:8}}>IRS standard rate: $0.70/mile (2025)</div>
+      </div>
+
+      <div style={{marginBottom:12}}>
+        <span style={S.label}>Date</span>
+        <input type="date" value={date} onChange={e=>setDate(e.target.value)} style={S.inp} />
+      </div>
+      <div style={{marginBottom:12}}>
+        <span style={S.label}>Destination</span>
+        <input type="text" value={destination} onChange={e=>setDestination(e.target.value)} placeholder="Home Depot, Milford OH" style={S.inp} />
+      </div>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:12}}>
+        <div>
+          <span style={S.label}>Miles</span>
+          <div style={{display:"flex",alignItems:"center",background:"#1a1508",border:"1px solid #3a2e1a",borderRadius:4}}>
+            <input type="number" placeholder="0" value={miles} onChange={e=>setMiles(e.target.value)}
+              style={{flex:1,background:"transparent",border:"none",outline:"none",color:"#f0e0b0",fontFamily:"'Courier New',monospace",fontSize:16,padding:"10px"}} />
+            <span style={{padding:"0 10px",color:"#8a7a5a",fontSize:13}}>mi</span>
+          </div>
+          {miles && <div style={{...S.hint,color:"#c8a84a"}}>{fmt(Number(miles)*RATE)} deduction</div>}
+        </div>
+        <div>
+          <span style={S.label}>Purpose</span>
+          <input type="text" value={purpose} onChange={e=>setPurpose(e.target.value)} placeholder="Materials run, site visit..." style={S.inp} />
+        </div>
+      </div>
+
+      <button onClick={add} disabled={saving||!miles||!destination} style={{...S.outlineBtn,marginBottom:12,opacity:(saving||!miles||!destination)?0.5:1}}>
+        {saving?"Saving...":"+ Log Miles"}
+      </button>
+      <button onClick={exportMileage} style={{...S.ghostBtn,marginBottom:24}} disabled={!logs.length}>&darr; Export CSV</button>
+
+      {logs.map(l=>(
+        <div key={l.id} style={S.row}>
+          <div>
+            <div style={{color:"#f0e0b0",fontSize:14}}>{l.destination}</div>
+            <div style={{color:"#8a7060",fontSize:12}}>{l.date}{l.purpose?" \u00b7 "+l.purpose:""}</div>
+          </div>
+          <div style={{display:"flex",alignItems:"center",gap:10}}>
+            <div style={{textAlign:"right"}}>
+              <div style={{fontFamily:"monospace",color:"#c8a84a",fontSize:13}}>{fmt(Number(l.miles)*RATE)}</div>
+              <div style={{color:"#5a5040",fontSize:11}}>{l.miles} mi</div>
+            </div>
+            <button onClick={()=>remove(l.id)} style={S.delBtn}>&times;</button>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ── REPORTS TAB ───────────────────────────────────────────────────
+function ReportsTab({clients,settings}) {
+  const [year,setYear] = useState(new Date().getFullYear());
+  const [receipts,setReceipts] = useState([]);
+  const [mileage,setMileage] = useState([]);
+  const [subDir,setSubDir] = useState([]);
+  const [subPmts,setSubPmts] = useState([]);
+  const [subLogs,setSubLogs] = useState([]);
+  const [bids,setBids] = useState([]);
+  const [loaded,setLoaded] = useState(false);
+  const [offSqFt,setOffSqFt] = useState("");
+  const [homeSqFt,setHomeSqFt] = useState("");
+  const [homeExpenses,setHomeExpenses] = useState("");
+  const RATE = 0.70;
+  const CATS_EXPENSE = ["Materials","Tools","Fuel/Mileage","Permits","Subs","Other","Home Office"];
+
+  useEffect(()=>{
+    Promise.all([
+      sb.from("d2r_receipts").select("*"),
+      sb.from("d2r_mileage").select("*"),
+      sb.from("d2r_sub_directory").select("*"),
+      sb.from("d2r_sub_payments").select("*"),
+      sb.from("d2r_sub_work_logs").select("*"),
+      sb.from("d2r_bids").select("*").order("date",{ascending:false}),
+    ]).then(([{data:r},{data:m},{data:sd},{data:sp},{data:sl},{data:b}])=>{
+      setReceipts(r||[]); setMileage(m||[]); setSubDir(sd||[]);
+      setSubPmts(sp||[]); setSubLogs(sl||[]); setBids(b||[]);
+      setLoaded(true);
+    });
+  },[]);
+
+  const inYear = arr => arr.filter(x=>{
+    const d = x.date||x.created_at||"";
+    return d.startsWith(String(year));
+  });
+
+  const yearReceipts = inYear(receipts);
+  const yearMileage = inYear(mileage);
+  const yearSubPmts = inYear(subPmts);
+  const yearBids = inYear(bids);
+
+  const totalExpenses = yearReceipts.reduce((s,r)=>s+Number(r.amount),0);
+  const totalMiles = yearMileage.reduce((s,m)=>s+Number(m.miles),0);
+  const mileageDeduction = totalMiles*RATE;
+  const totalSubsPaid = yearSubPmts.reduce((s,p)=>s+Number(p.amount),0);
+  const totalBids = yearBids.reduce((s,b)=>s+Number(b.amount),0);
+
+  const offPct = offSqFt&&homeSqFt ? (Number(offSqFt)/Number(homeSqFt)) : 0;
+  const homeOfficeDeduction = offPct&&homeExpenses ? Number(homeExpenses)*offPct : 0;
+
+  const byCat = {};
+  CATS_EXPENSE.forEach(c=>{ byCat[c]=yearReceipts.filter(r=>r.category===c).reduce((s,r)=>s+Number(r.amount),0); });
+
+  // 1099 summary
+  const subTotals = {};
+  yearSubPmts.forEach(p=>{ subTotals[p.sub_id]=(subTotals[p.sub_id]||0)+Number(p.amount); });
+
+  const availableYears = ()=>{
+    const all = [...receipts,...mileage,...subPmts,...bids];
+    const years = new Set(all.map(x=>(x.date||x.created_at||"").slice(0,4)).filter(y=>y.length===4));
+    years.add(String(new Date().getFullYear()));
+    return [...years].sort().reverse();
+  };
+
+  function emailReport() {
+    const lines = [
+      "TAX REPORT "+year+" \u2014 Dream to Reality Construction LLC",
+      "James Prichard",
+      "=".repeat(45),
+      "",
+      "INCOME",
+      "Total bids sent: "+fmt(totalBids)+" ("+yearBids.length+" jobs)",
+      "",
+      "EXPENSES",
+      ...CATS_EXPENSE.filter(c=>byCat[c]>0).map(c=>"  "+c+": "+fmt(byCat[c])),
+      "  Mileage ("+totalMiles.toFixed(1)+" mi @ $"+RATE+"/mi): "+fmt(mileageDeduction),
+      offPct ? "  Home Office ("+Math.round(offPct*100)+"% of home): "+fmt(homeOfficeDeduction) : "",
+      "  TOTAL DEDUCTIBLE EXPENSES: "+fmt(totalExpenses+mileageDeduction+homeOfficeDeduction),
+      "",
+      "SUBCONTRACTORS",
+      ...Object.entries(subTotals).map(([id,total])=>{
+        const sub = subDir.find(s=>s.id==id);
+        return "  "+(sub?.name||"Unknown")+": "+fmt(total)+(total>=600?" \u26a0 1099 REQUIRED":"");
+      }),
+      "",
+      "HOME OFFICE",
+      offSqFt ? "  Office: "+offSqFt+" sq ft / Home: "+homeSqFt+" sq ft ("+Math.round(offPct*100)+"%)" : "  Not calculated",
+      offPct && homeExpenses ? "  Annual home expenses: "+fmt(homeExpenses)+" \u00d7 "+Math.round(offPct*100)+"% = "+fmt(homeOfficeDeduction)+" deduction" : "",
+      "",
+      "Generated: "+new Date().toLocaleDateString(),
+    ].filter(l=>l!==undefined);
+    const body = lines.join("\n");
+    window.open("mailto:?subject="+encodeURIComponent("Tax Report "+year+" \u2014 Dream to Reality Construction LLC")+"&body="+encodeURIComponent(body));
+  }
+
+  function exportReport() {
+    const rows = [
+      ["DREAM TO REALITY CONSTRUCTION LLC \u2014 TAX REPORT "+year],
+      ["James Prichard"],
+      [],
+      ["INCOME"],
+      ["Total Bids Sent",fmt(totalBids)],
+      ["Number of Jobs",yearBids.length],
+      [],
+      ["EXPENSES BY CATEGORY"],
+      ["Category","Amount"],
+      ...CATS_EXPENSE.filter(c=>byCat[c]>0).map(c=>[c,byCat[c].toFixed(2)]),
+      ["Mileage Deduction ("+totalMiles.toFixed(1)+" mi)",mileageDeduction.toFixed(2)],
+      offPct&&homeExpenses ? ["Home Office Deduction ("+Math.round(offPct*100)+"%)",homeOfficeDeduction.toFixed(2)] : [],
+      ["TOTAL DEDUCTIBLE",(totalExpenses+mileageDeduction+homeOfficeDeduction).toFixed(2)],
+      [],
+      ["SUBCONTRACTOR PAYMENTS \u2014 1099 SUMMARY"],
+      ["Name","Trade","Total Paid","1099 Required"],
+      ...Object.entries(subTotals).map(([id,total])=>{
+        const sub = subDir.find(s=>s.id==id);
+        return [sub?.name||"Unknown",sub?.trade||"",total.toFixed(2),total>=600?"YES":"No"];
+      }),
+      [],
+      ["RECEIPT DETAIL"],
+      ["Date","Amount","Category","Description"],
+      ...yearReceipts.map(r=>[r.date,r.amount,r.category,r.description]),
+      [],
+      ["MILEAGE LOG"],
+      ["Date","Destination","Miles","Purpose","Deduction"],
+      ...yearMileage.map(m=>[m.date,m.destination,m.miles,m.purpose,(Number(m.miles)*RATE).toFixed(2)]),
+    ].filter(r=>r.length>0);
+    downloadCSV("tax-report-"+year+".csv",rows);
+  }
+
+  if(!loaded) return <Loading />;
+
+  const years = availableYears();
+
+  return (
+    <div>
+      {/* Year selector */}
+      <div style={{marginBottom:20}}>
+        <span style={S.label}>Tax Year</span>
+        <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+          {years.map(y=>(
+            <button key={y} onClick={()=>setYear(Number(y))}
+              style={{padding:"8px 16px",borderRadius:4,border:"1px solid "+(year===Number(y)?"#c8a84a":"#3a2e1a"),background:year===Number(y)?"#2a200a":"#1a1508",color:year===Number(y)?"#c8a84a":"#5a5040",cursor:"pointer",fontWeight:year===Number(y)?700:400,fontSize:13}}>
+              {y}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Summary cards */}
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:20}}>
+        {[
+          ["Bids Sent",fmt(totalBids),"#c8a84a"],
+          ["Total Expenses",fmt(totalExpenses),"#8a4a4a"],
+          ["Mileage",fmt(mileageDeduction),"#4a7a8a"],
+          ["Subs Paid",fmt(totalSubsPaid),"#8a5a3a"],
+        ].map(([l,v,col])=>(
+          <div key={l} style={{...S.card,background:"#111008"}}>
+            <div style={{fontSize:9,letterSpacing:"0.12em",color:"#5a5040",textTransform:"uppercase",marginBottom:6}}>{l}</div>
+            <div style={{fontFamily:"monospace",fontSize:17,color:col,fontWeight:700}}>{v}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Expenses by category */}
+      {totalExpenses>0 && (
+        <div style={{marginBottom:20}}>
+          <span style={{...S.label,marginBottom:8,display:"block"}}>Expenses by Category</span>
+          {CATS_EXPENSE.filter(c=>byCat[c]>0).map(c=>(
+            <div key={c} style={{display:"flex",justifyContent:"space-between",padding:"6px 0",borderTop:"1px solid #2a200a"}}>
+              <span style={{color:"#8a7a5a",fontSize:13}}>{c}</span>
+              <span style={{fontFamily:"monospace",color:"#f0e0b0",fontSize:13}}>{fmt(byCat[c])}</span>
+            </div>
+          ))}
+          <div style={{display:"flex",justifyContent:"space-between",padding:"6px 0",borderTop:"1px solid #2a200a"}}>
+            <span style={{color:"#8a7a5a",fontSize:13}}>Mileage ({totalMiles.toFixed(1)} mi)</span>
+            <span style={{fontFamily:"monospace",color:"#f0e0b0",fontSize:13}}>{fmt(mileageDeduction)}</span>
+          </div>
+          <div style={{display:"flex",justifyContent:"space-between",padding:"10px 0",borderTop:"1px solid #c8a84a",marginTop:4}}>
+            <span style={{color:"#c8a84a",fontSize:13,textTransform:"uppercase",letterSpacing:"0.1em"}}>Total Deductible</span>
+            <span style={{fontFamily:"monospace",color:"#c8a84a",fontSize:18,fontWeight:700}}>{fmt(totalExpenses+mileageDeduction+homeOfficeDeduction)}</span>
+          </div>
+        </div>
+      )}
+
+      {/* Home office */}
+      <div style={{...S.card,marginBottom:20,border:"1px solid #3a2e1a"}}>
+        <div style={{fontSize:13,color:"#c8a84a",fontWeight:700,marginBottom:12}}>Home Office Deduction</div>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}}>
+          <div>
+            <span style={S.label}>Office Sq Ft</span>
+            <input type="number" value={offSqFt} onChange={e=>setOffSqFt(e.target.value)} placeholder="150" style={S.numInp} />
+          </div>
+          <div>
+            <span style={S.label}>Home Sq Ft</span>
+            <input type="number" value={homeSqFt} onChange={e=>setHomeSqFt(e.target.value)} placeholder="1800" style={S.numInp} />
+          </div>
+        </div>
+        <div style={{marginBottom:10}}>
+          <span style={S.label}>Annual Home Expenses (rent/mortgage + utilities + internet)</span>
+          <div style={{display:"flex",alignItems:"center",background:"#1a1508",border:"1px solid #3a2e1a",borderRadius:4}}>
+            <span style={{padding:"0 10px",color:"#c8a84a",fontFamily:"monospace"}}>$</span>
+            <input type="number" value={homeExpenses} onChange={e=>setHomeExpenses(e.target.value)} placeholder="18000"
+              style={{flex:1,background:"transparent",border:"none",outline:"none",color:"#f0e0b0",fontFamily:"'Courier New',monospace",fontSize:14,padding:"10px 8px"}} />
+          </div>
+        </div>
+        {offPct>0 && (
+          <div style={{background:"#0f1a0a",border:"1px solid #2a4a1a",borderRadius:4,padding:"10px 12px"}}>
+            <div style={{fontSize:12,color:"#7aba4a",marginBottom:4}}>{Math.round(offPct*100)}% of home = office</div>
+            {homeExpenses && <div style={{fontFamily:"monospace",fontSize:17,color:"#c8a84a",fontWeight:700}}>Deduction: {fmt(homeOfficeDeduction)}</div>}
+          </div>
+        )}
+        <div style={{...S.hint,marginTop:8}}>These numbers are for your accountant. Keep a floor plan or photo as documentation.</div>
+      </div>
+
+      {/* 1099 summary */}
+      {Object.keys(subTotals).length>0 && (
+        <div style={{marginBottom:20}}>
+          <span style={{...S.label,marginBottom:8,display:"block"}}>Subcontractor Summary</span>
+          {Object.entries(subTotals).map(([id,total])=>{
+            const sub = subDir.find(s=>s.id==id);
+            return (
+              <div key={id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 0",borderTop:"1px solid #2a200a"}}>
+                <div>
+                  <div style={{color:"#f0e0b0",fontSize:14}}>{sub?.name||"Unknown"}</div>
+                  {sub?.trade && <div style={{color:"#5a5040",fontSize:12}}>{sub.trade}</div>}
+                </div>
+                <div style={{textAlign:"right"}}>
+                  <div style={{fontFamily:"monospace",color:"#f0e0b0",fontSize:13}}>{fmt(total)}</div>
+                  {total>=600 && <div style={{fontSize:10,color:"#c8a84a"}}>&#9888; 1099</div>}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Bids */}
+      {yearBids.length>0 && (
+        <div style={{marginBottom:20}}>
+          <span style={{...S.label,marginBottom:8,display:"block"}}>Bids Sent ({year})</span>
+          {yearBids.map(b=>(
+            <div key={b.id} style={S.row}>
+              <div>
+                <div style={{color:"#f0e0b0",fontSize:14}}>{b.client_name||"No client"}</div>
+                <div style={{color:"#5a5040",fontSize:12}}>{b.date}{b.job_desc?" \u00b7 "+b.job_desc:""}</div>
+              </div>
+              <span style={{fontFamily:"monospace",color:"#c8a84a"}}>{fmt(b.amount)}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Export buttons */}
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginTop:8}}>
+        <button onClick={emailReport} style={S.outlineBtn}>&#x2709; Email Report</button>
+        <button onClick={exportReport} style={S.ghostBtn}>&darr; Export CSV</button>
+      </div>
+    </div>
+  );
+}
+
+// ── BID RECORDING (added to BidTab via separate log) ─────────────
+async function recordBid(client, jobDesc, total, settings) {
+  const clientName = client ? client.name : "";
+  await sb.from("d2r_bids").insert({
+    date: new Date().toISOString().slice(0,10),
+    client_name: clientName,
+    job_desc: jobDesc,
+    amount: total,
+  });
+}
+
+// ── APP ───────────────────────────────────────────────────────────
+const TABS=[{id:"clients",label:"Clients"},{id:"bid",label:"Bid"},{id:"receipts",label:"Receipts"},{id:"subs",label:"Subs"},{id:"mileage",label:"Miles"},{id:"reports",label:"Reports"}];
+
+function PinGate({onUnlock}) {
+  const [pin,setPin] = useState("");
+  const [storedPin,setStoredPin] = useState(null);
+  const [loading,setLoading] = useState(true);
+  const [wrong,setWrong] = useState(false);
+  const [settingPin,setSettingPin] = useState(false);
+  const [newPin,setNewPin] = useState("");
+  const [confirmPin,setConfirmPin] = useState("");
+
+  useEffect(()=>{
+    // Check if PIN is already verified this session
+    if(sessionStorage.getItem("d2r_unlocked")==="1") { onUnlock(); return; }
+    sb.from("d2r_settings").select("val").eq("key_name","app_pin").single().then(({data})=>{
+      if(data?.val) setStoredPin(data.val);
+      else setSettingPin(true); // No PIN set yet - prompt to create one
+      setLoading(false);
+    });
+  },[]);
+
+  async function savePin() {
+    if(newPin.length<4) return;
+    if(newPin!==confirmPin) { alert("PINs don't match."); return; }
+    await sb.from("d2r_settings").upsert({key_name:"app_pin",val:newPin},{onConflict:"key_name"});
+    sessionStorage.setItem("d2r_unlocked","1");
+    onUnlock();
+  }
+
+  function tryPin() {
+    if(pin===storedPin) { sessionStorage.setItem("d2r_unlocked","1"); onUnlock(); }
+    else { setWrong(true); setPin(""); setTimeout(()=>setWrong(false),1500); }
+  }
+
+  if(loading) return (
+    <div style={{background:"#0d0b06",minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center"}}>
+      <div style={{fontSize:13,color:"#5a5040"}}>Loading...</div>
+    </div>
+  );
+
+  return (
+    <div style={{background:"#0d0b06",minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",padding:32}}>
+      <div style={{width:"100%",maxWidth:320}}>
+        <div style={{textAlign:"center",marginBottom:32}}>
+          <div style={{fontSize:24,fontWeight:700,color:"#c8a84a",letterSpacing:"-0.02em"}}>Dream to Reality</div>
+          <div style={{fontSize:13,color:"#a08a5a",marginTop:4}}>Field System</div>
+        </div>
+
+        {settingPin ? (
+          <div>
+            <div style={{fontSize:14,color:"#f0e0b0",textAlign:"center",marginBottom:24,lineHeight:1.6}}>
+              Create a PIN to protect this app.
+            </div>
+            <div style={{marginBottom:12}}>
+              <span style={S.label}>New PIN (4+ digits)</span>
+              <input type="password" inputMode="numeric" value={newPin} onChange={e=>setNewPin(e.target.value)}
+                placeholder="----" style={{...S.inp,fontSize:24,textAlign:"center",letterSpacing:"0.3em"}} />
+            </div>
+            <div style={{marginBottom:20}}>
+              <span style={S.label}>Confirm PIN</span>
+              <input type="password" inputMode="numeric" value={confirmPin} onChange={e=>setConfirmPin(e.target.value)}
+                placeholder="----" style={{...S.inp,fontSize:24,textAlign:"center",letterSpacing:"0.3em"}}
+                onKeyDown={e=>e.key==="Enter"&&savePin()} />
+            </div>
+            <button onClick={savePin} style={S.goldBtn}>Set PIN &amp; Enter</button>
+            <div style={{fontSize:11,color:"#8a7060",textAlign:"center",marginTop:12}}>Both phones use the same PIN. You can change it in Settings.</div>
+          </div>
+        ) : (
+          <div>
+            <div style={{marginBottom:20}}>
+              <span style={S.label}>Enter PIN</span>
+              <input type="password" inputMode="numeric" value={pin} onChange={e=>setPin(e.target.value)}
+                placeholder="----"
+                style={{...S.inp,fontSize:28,textAlign:"center",letterSpacing:"0.4em",border:"1px solid "+(wrong?"#8a4a4a":"#3a2e1a"),transition:"border-color 0.2s"}}
+                onKeyDown={e=>e.key==="Enter"&&tryPin()} autoFocus />
+              {wrong && <div style={{fontSize:12,color:"#c8504a",textAlign:"center",marginTop:8}}>Incorrect PIN. Try again.</div>}
+            </div>
+            <button onClick={tryPin} style={S.goldBtn}>Unlock</button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function App() {
+  const [unlocked,setUnlocked] = useState(false);
+  const [tab,setTab] = useState("clients");
+  const [clients,setClients] = useState([]);
+  const [subDirectory,setSubDirectory] = useState([]);
+  const [settings,setSettings] = useState({rate:85,markup:15,bidEmail:"",receiptEmail:"",anthropicKey:""});
+  const [showSettings,setShowSettings] = useState(false);
+  const [loaded,setLoaded] = useState(false);
+  const [error,setError] = useState(null);
+
+  useEffect(()=>{
+    Promise.all([
+      sb.from("d2r_clients").select("*").order("name"),
+      sb.from("d2r_sub_directory").select("*").order("name"),
+      sb.from("d2r_settings").select("key_name,val"),
+    ]).then(([{data:c,error:e1},{data:s,error:e2},{data:cfg,error:e3}])=>{
+      const err = e1||e2||e3;
+      if(err) { setError(err.message); setLoaded(true); return; }
+      setClients(c||[]);
+      setSubDirectory(s||[]);
+      if(cfg&&cfg.length) {
+        const m={};
+        cfg.forEach(r=>m[r.key_name]=r.val);
+        setSettings(prev=>({...prev,...m}));
+      }
+      setLoaded(true);
+    }).catch(err=>{ setError(err.message); setLoaded(true); });
+  },[]);
+
+  if(!unlocked) return <PinGate onUnlock={()=>setUnlocked(true)} />;
+
+  if(!loaded) return (
+    <div style={{background:"#0d0b06",minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",flexDirection:"column",gap:16}}>
+      <div style={{fontSize:20,color:"#c8a84a",fontWeight:700}}>Dream to Reality</div>
+      <div style={{fontSize:13,color:"#5a5040"}}>Loading...</div>
+    </div>
+  );
+
+  if(error) return (
+    <div style={{background:"#0d0b06",minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",flexDirection:"column",gap:16,padding:32}}>
+      <div style={{fontSize:20,color:"#c8a84a",fontWeight:700}}>Setup Required</div>
+      <div style={{fontSize:13,color:"#8a4a4a",textAlign:"center",lineHeight:1.8,fontFamily:"monospace"}}>{error}</div>
+      <div style={{fontSize:12,color:"#5a5040",textAlign:"center",lineHeight:1.6,maxWidth:320}}>Run the SQL setup script in your Supabase dashboard, then reload.</div>
+      <button onClick={()=>window.location.reload()} style={{...S.outlineBtn,width:"auto",padding:"10px 24px"}}>Reload</button>
+    </div>
+  );
+
+  return (
+    <div style={{background:"#0d0b06",minHeight:"100vh",maxWidth:480,margin:"0 auto"}}>
+      <div style={{padding:"20px 20px 14px",borderBottom:"1px solid #2a200a",display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
+        <div>
+          <div style={{fontSize:10,letterSpacing:"0.2em",color:"#5a5040",textTransform:"uppercase",marginBottom:4}}>Field System</div>
+          <div style={{fontSize:20,fontWeight:700,color:"#c8a84a",letterSpacing:"-0.02em"}}>James Prichard</div>
+          <div style={{fontSize:13,color:"#e0c88a",marginTop:2,fontWeight:600}}>Dream to Reality Construction LLC</div>
+          <div style={{fontSize:11,color:"#5a5040",marginTop:2}}>Est. 1996</div>
+        </div>
+        <button onClick={()=>setShowSettings(true)}
+          style={{background:"none",border:"1px solid #3a2e1a",borderRadius:6,color:"#8a7a5a",fontSize:20,cursor:"pointer",padding:"6px 10px",marginTop:4}}>&#9881;</button>
+      </div>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(6,1fr)",borderBottom:"1px solid #2a200a",position:"sticky",top:0,background:"#0d0b06",zIndex:10}}>
+        {TABS.map(t=>(
+          <button key={t.id} onClick={()=>setTab(t.id)}
+            style={{background:"none",border:"none",borderBottom:"2px solid "+(tab===t.id?"#c8a84a":"transparent"),padding:"13px 0",color:tab===t.id?"#c8a84a":"#a08a5a",cursor:"pointer",fontSize:11,letterSpacing:"0.08em",textTransform:"uppercase",fontWeight:tab===t.id?700:400}}>
+            {t.label}
+          </button>
+        ))}
+      </div>
+      <div style={{padding:20,paddingBottom:56}}>
+        {tab==="clients" && <ClientsTab clients={clients} setClients={setClients} />}
+        {tab==="bid" && <BidTab clients={clients} settings={settings} />}
+        {tab==="receipts" && <ReceiptsTab settings={settings} />}
+        {tab==="subs" && <SubsTab directory={subDirectory} setDirectory={setSubDirectory} />}
+        {tab==="mileage" && <MileageTab />}
+        {tab==="reports" && <ReportsTab clients={clients} settings={settings} />}
+      </div>
+      {showSettings && <SettingsSheet settings={settings} setSettings={setSettings} onClose={()=>setShowSettings(false)} />}
+    </div>
+  );
+}
+
+try {
+  ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+} catch(e) {
+  document.getElementById("root").innerHTML = `<div style="background:#0d0b06;min-height:100vh;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:16px;padding:32px;font-family:Georgia,serif;"><div style="font-size:20px;color:#c8a84a;font-weight:700;">Startup Error</div><div style="font-size:13px;color:#8a4a4a;text-align:center;font-family:monospace;line-height:1.8;">${e.message}</div><div style="font-size:12px;color:#5a5040;text-align:center;">Check browser console for details.</div><button onclick="location.reload()" style="background:#2a200a;border:1px solid #c8a84a;color:#c8a84a;border-radius:4px;padding:10px 24px;cursor:pointer;font-size:12px;margin-top:8px;">Reload</button></div>`;
+}
+</script>
+</body>
+</html>
